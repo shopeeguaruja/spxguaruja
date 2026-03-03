@@ -1,0 +1,460 @@
+<!doctype html>
+<html lang="pt-BR" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Admin • Mercado de Trocas</title>
+<script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+<style>
+  /* [O MESMO CSS DO SEU PAINEL ANTIGO COM ALGUMAS ADAPTAÇÕES PARA O MERCADO] */
+  :root{
+    --brand:#ff5a2a; --brand-2:#ff713f; --brand-3:#ff3e0e;
+    --ink:#0e1320; --muted:#6c7282;
+    --bg:#f6f7fb; --grad-a:#ffeae1; --grad-b:#ffe0d4;
+    --card:rgba(255,255,255,.78); --line:rgba(110,120,150,.12);
+    --shadow-lg:0 30px 60px rgba(15,23,42,.12), 0 10px 20px rgba(15,23,42,.06);
+    --ok:#16a34a; --warn:#f59e0b; --danger:#ef4444; --info:#3b82f6;
+    --r-card:16px; --r-btn:10px;
+  }
+  [data-theme="dark"]{
+    --ink:#e7ecff; --muted:#97a0b8;
+    --bg:#0b1020; --grad-a:#1a223a; --grad-b:#131a2f;
+    --card:rgba(20,26,44,.72); --line:rgba(180,200,255,.10);
+    --shadow-lg:0 30px 60px rgba(0,0,0,.35), 0 10px 20px rgba(0,0,0,.25);
+  }
+  *{box-sizing:border-box} body{margin:0; color:var(--ink); font-family:system-ui,sans-serif; background:var(--bg);}
+  
+  .appbar{position:sticky; top:0; z-index:30; background:linear-gradient(180deg,var(--brand),var(--brand-2)); color:#fff;}
+  .appbar .inner{max-width:1200px; margin:0 auto; padding:12px 20px; display:flex; align-items:center; gap:14px; flex-wrap:wrap;}
+  .btn{padding:8px 14px; border-radius:var(--r-btn); border:1px solid rgba(255,255,255,.3); background:#fff; color:var(--brand-3); font-weight:bold; cursor:pointer;}
+  .btn.ghost{background:transparent; color:#fff;}
+  .spacer{flex:1}
+  
+  .wrap{max-width:1200px; margin:20px auto; padding:0 20px;}
+  .card{background:var(--card); border:1px solid var(--line); border-radius:var(--r-card); padding:18px; margin-bottom:15px; box-shadow:var(--shadow-lg);}
+  
+  input, select{width:100%; padding:10px; border:1px solid var(--line); border-radius:8px; background:rgba(255,255,255,.05); color:var(--ink); margin-top:5px; margin-bottom:12px;}
+  label{font-size:12px; font-weight:bold; color:var(--muted); text-transform:uppercase;}
+  
+  .badge{display:inline-block; padding:4px 8px; border-radius:6px; font-size:11px; font-weight:bold; background:var(--line);}
+  .badge.am{background:#f59e0b; color:#fff;} .badge.pm1{background:#3b82f6; color:#fff;} .badge.pm2{background:#8b5cf6; color:#fff;}
+  
+  .grid-2{display:grid; grid-template-columns: 1fr 1fr; gap:15px;}
+  .proposal-item{background:rgba(0,0,0,.1); border-left:3px solid var(--info); padding:10px; margin-top:10px; border-radius:0 8px 8px 0;}
+  [data-theme="dark"] .proposal-item{background:rgba(255,255,255,.05);}
+  
+  .actions{display:flex; gap:8px; margin-top:10px;}
+  .btn-sm{padding:6px 10px; font-size:12px; border-radius:6px; border:none; cursor:pointer; font-weight:bold;}
+  .btn-edit{background:#3b82f6; color:#fff;} .btn-del{background:#ef4444; color:#fff;} .btn-ok{background:#10b981; color:#fff;}
+  
+  .modal-bg{position:fixed; inset:0; background:rgba(0,0,0,.8); display:none; align-items:center; justify-content:center; z-index:50;}
+  .modal{background:var(--card); padding:20px; border-radius:12px; width:90%; max-width:500px;}
+</style>
+</head>
+<body>
+
+<header class="appbar">
+  <div class="inner">
+    <div style="font-weight:900; font-size:18px;">Mercado de Trocas • ADMIN</div>
+    <div class="spacer"></div>
+    <button class="btn ghost hide-if-logged" id="btnTheme">🌙 Tema</button>
+    
+    <div id="menuAdmin" style="display:none; gap:10px;">
+        <button class="btn ghost" onclick="mudarAba('mercado')">Mercado Ativo</button>
+        <button class="btn ghost" onclick="mudarAba('historico')">Histórico (Concluídas)</button>
+        <button class="btn ghost" onclick="mudarAba('motoristas')">Motoristas</button>
+        <button class="btn ghost" onclick="sair()" style="border-color:#ffb3b3; color:#ffe6e6;">Sair</button>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+  <div class="card" id="loginBox" style="max-width:400px; margin:40px auto;">
+    <h3>Acesso Restrito - Analista</h3>
+    <label>Senha do Painel</label>
+    <input type="password" id="adminPass" placeholder="Digite a senha">
+    <button class="btn" style="width:100%;" onclick="fazerLogin()">Entrar</button>
+  </div>
+
+  <div id="adminContent" style="display:none;">
+      <div id="aba-mercado" class="aba">
+          <h2>Ofertas Abertas no Momento</h2>
+          <div id="lista-ofertas">Carregando...</div>
+      </div>
+
+      <div id="aba-historico" class="aba" style="display:none;">
+          <h2>Trocas Concluídas (Separar Gaiolas)</h2>
+          <div id="lista-historico">Carregando...</div>
+      </div>
+
+      <div id="aba-motoristas" class="aba" style="display:none;">
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <h2>Gestão de Motoristas</h2>
+            <button class="btn-sm btn-ok" onclick="abrirModalMotorista()">+ Novo Motorista</button>
+          </div>
+          <input type="text" id="buscaMoto" placeholder="Buscar por ID ou Nome..." onkeyup="filtrarMotoristas()">
+          <div id="lista-motoristas">Carregando...</div>
+      </div>
+  </div>
+</main>
+
+<div class="modal-bg" id="modalEdit">
+    <div class="modal">
+        <h3 id="editTitle">Editar Clusters</h3>
+        <label>Clusters (Separe por vírgula)</label>
+        <input type="text" id="editInput" placeholder="Ex: A-1, A-2, B-3">
+        <div class="actions" style="justify-content:flex-end;">
+            <button class="btn-sm" onclick="fecharModal()">Cancelar</button>
+            <button class="btn-sm btn-ok" onclick="salvarEdicao()">Salvar Alteração</button>
+        </div>
+    </div>
+</div>
+
+<div class="modal-bg" id="modalDriver">
+    <div class="modal">
+        <h3 id="driverTitle">Adicionar / Editar Motorista</h3>
+        <div class="grid-2">
+            <div><label>ID Shopee</label><input type="text" id="d_id"></div>
+            <div>
+                <label>Veículo</label>
+                <select id="d_veh">
+                    <option value="MOTO">MOTO</option>
+                    <option value="PASSEIO">PASSEIO</option>
+                    <option value="FIORINO">FIORINO</option>
+                </select>
+            </div>
+        </div>
+        <label>Nome Completo</label>
+        <input type="text" id="d_name">
+        <div class="grid-2">
+            <div><label>Telefone</label><input type="text" id="d_phone" placeholder="(11) 99999-9999"></div>
+            <div><label>Senha (4 dígitos)</label><input type="text" id="d_pass" maxlength="4"></div>
+        </div>
+        <div class="actions" style="justify-content:flex-end;">
+            <button class="btn-sm" onclick="fecharModal()">Cancelar</button>
+            <button class="btn-sm btn-ok" onclick="salvarMotorista()">Salvar Motorista</button>
+        </div>
+    </div>
+</div>
+
+<script>
+// ==========================================
+// CHAVES DO SUPABASE
+// ==========================================
+const SUPABASE_URL = 'https://jplxmmpwajicjeoxfcpl.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_I7uKsNad5pHHes5bgAqhEA_ewMRRy_3';
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+let adminHash = localStorage.getItem('admin_hash');
+let motoristasMap = {}; // Guarda {id: {nome, veiculo}} para buscas rápidas
+
+// Estado para edição
+let editType = ''; // 'offer_from', 'offer_desired', 'proposal'
+let editId = null;
+
+// ==========================================
+// LOGIN & TEMA
+// ==========================================
+async function sha256(text){
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+  return [...new Uint8Array(buf)].map(b=>b.toString(16).padStart(2,'0')).join('');
+}
+
+async function fazerLogin() {
+    const pass = document.getElementById('adminPass').value;
+    const hash = await sha256(pass);
+    const { data } = await sb.from('config').select('admin_pass').eq('id',1).single();
+    
+    if(data && data.admin_pass === hash) {
+        adminHash = hash;
+        localStorage.setItem('admin_hash', hash);
+        iniciarPainel();
+    } else {
+        alert("Senha incorreta!");
+    }
+}
+
+if(adminHash) iniciarPainel();
+
+function sair() {
+    localStorage.removeItem('admin_hash');
+    location.reload();
+}
+
+function mudarAba(abaId) {
+    document.querySelectorAll('.aba').forEach(el => el.style.display = 'none');
+    document.getElementById(`aba-${abaId}`).style.display = 'block';
+    if(abaId === 'mercado') carregarMercado();
+    if(abaId === 'historico') carregarHistorico();
+    if(abaId === 'motoristas') carregarMotoristas();
+}
+
+async function iniciarPainel() {
+    document.getElementById('loginBox').style.display = 'none';
+    document.getElementById('adminContent').style.display = 'block';
+    document.getElementById('menuAdmin').style.display = 'flex';
+    
+    // Carrega o mapa de motoristas para resolver os nomes
+    const { data } = await sb.from('drivers').select('*');
+    if(data) data.forEach(d => motoristasMap[d.driver_id] = d);
+
+    mudarAba('mercado');
+}
+
+// ==========================================
+// ABA 1: MERCADO ATIVO (O OLHO DE DEUS)
+// ==========================================
+async function carregarMercado() {
+    const lista = document.getElementById('lista-ofertas');
+    lista.innerHTML = 'Carregando...';
+
+    const { data: ofertas } = await sb.from('trade_offers').select('*').eq('status', 'OPEN').order('created_at', {ascending: false});
+    const { data: propostas } = await sb.from('trade_proposals').select('*').eq('status', 'PENDING');
+
+    if(!ofertas || ofertas.length === 0) return lista.innerHTML = '<div class="card">Nenhuma rota sendo negociada agora.</div>';
+
+    let html = '';
+    ofertas.forEach(of => {
+        const dono = motoristasMap[of.driver_id] || {name: 'Desconhecido', vehicle: of.vehicle};
+        const props = propostas.filter(p => p.offer_id === of.id);
+        
+        let propsHtml = '';
+        props.forEach(p => {
+            const pDono = motoristasMap[p.proposing_driver_id] || {name: 'Desconhecido'};
+            propsHtml += `
+                <div class="proposal-item">
+                    <b>↳ Lance de: [${p.proposing_driver_id}] ${pDono.name}</b><br>
+                    Ofereceu: ${p.proposed_clusters.join(', ')}
+                    <div class="actions">
+                        <button class="btn-sm btn-edit" onclick="abrirEdicao('proposal', ${p.id}, '${p.proposed_clusters.join(', ')}')">Editar Lance</button>
+                        <button class="btn-sm btn-ok" onclick="forcarAceite(${p.id})">Aprovar Troca (Forçar)</button>
+                        <button class="btn-sm btn-del" onclick="deletarRegistro('trade_proposals', ${p.id})">Recusar/Apagar</button>
+                    </div>
+                </div>
+            `;
+        });
+
+        html += `
+            <div class="card" style="border-left: 4px solid #f59e0b;">
+                <div style="display:flex; justify-content:space-between;">
+                    <div><span class="badge am">${of.route_date} • ${of.time_window}</span> <span class="badge">${of.vehicle}</span></div>
+                    <button class="btn-sm btn-del" onclick="deletarRegistro('trade_offers', ${of.id})">Excluir Anúncio</button>
+                </div>
+                <h3 style="margin-top:10px; margin-bottom:5px;">[${of.driver_id}] ${dono.name}</h3>
+                
+                <div style="margin-bottom:8px;">
+                    <b>Oferece:</b> ${of.clusters_from.join(', ')} 
+                    <button class="btn-sm" style="background:transparent; border:1px solid #555; padding:2px 6px; color:var(--ink);" onclick="abrirEdicao('offer_from', ${of.id}, '${of.clusters_from.join(', ')}')">Editar</button>
+                </div>
+                
+                <div style="margin-bottom:15px;">
+                    <b>Deseja:</b> ${of.desired_clusters ? of.desired_clusters.join(', ') : 'Qualquer rota'}
+                    <button class="btn-sm" style="background:transparent; border:1px solid #555; padding:2px 6px; color:var(--ink);" onclick="abrirEdicao('offer_desired', ${of.id}, '${of.desired_clusters ? of.desired_clusters.join(', ') : ''}')">Editar</button>
+                </div>
+
+                ${propsHtml || '<div class="muted">Nenhuma proposta recebida ainda.</div>'}
+            </div>
+        `;
+    });
+    lista.innerHTML = html;
+}
+
+// ==========================================
+// ABA 2: HISTÓRICO DE TROCAS (Gaiolas)
+// ==========================================
+async function carregarHistorico() {
+    const lista = document.getElementById('lista-historico');
+    lista.innerHTML = 'Carregando...';
+
+    // Busca ofertas concluidas
+    const { data: ofertas } = await sb.from('trade_offers').select('*').eq('status', 'COMPLETED').order('created_at', {ascending: false}).limit(50);
+    const { data: propostas } = await sb.from('trade_proposals').select('*').eq('status', 'ACCEPTED');
+
+    if(!ofertas || ofertas.length === 0) return lista.innerHTML = '<div class="card">Nenhuma troca foi concluída ainda.</div>';
+
+    let html = '';
+    ofertas.forEach(of => {
+        const donoOferta = motoristasMap[of.driver_id] || {name: 'Desconhecido'};
+        const propAceita = propostas.find(p => p.offer_id === of.id);
+        
+        if(propAceita) {
+            const donoLance = motoristasMap[propAceita.proposing_driver_id] || {name: 'Desconhecido'};
+            
+            html += `
+                <div class="card" style="border-left: 4px solid #10b981;">
+                    <div style="font-size:12px; color:var(--muted); margin-bottom:10px;">
+                        Data da Rota: ${of.route_date} • Janela: ${of.time_window}
+                    </div>
+                    <div style="display:flex; align-items:center; gap:15px;">
+                        <div style="flex:1; background:rgba(0,0,0,.1); padding:10px; border-radius:8px;">
+                            <b>[${of.driver_id}] ${donoOferta.name}</b><br>
+                            Entregou: <span style="color:#ef4444">${of.clusters_from.join(', ')}</span><br>
+                            Recebeu: <span style="color:#10b981">${propAceita.proposed_clusters.join(', ')}</span>
+                        </div>
+                        <div style="font-size:20px;">🔄</div>
+                        <div style="flex:1; background:rgba(0,0,0,.1); padding:10px; border-radius:8px;">
+                            <b>[${propAceita.proposing_driver_id}] ${donoLance.name}</b><br>
+                            Entregou: <span style="color:#ef4444">${propAceita.proposed_clusters.join(', ')}</span><br>
+                            Recebeu: <span style="color:#10b981">${of.clusters_from.join(', ')}</span>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+    });
+    lista.innerHTML = html;
+}
+
+// ==========================================
+// ABA 3: MOTORISTAS
+// ==========================================
+async function carregarMotoristas() {
+    const lista = document.getElementById('lista-motoristas');
+    let html = '';
+    
+    // Transforma o mapa em array e ordena por nome
+    const drivers = Object.values(motoristasMap).sort((a,b) => (a.name || '').localeCompare(b.name || ''));
+    
+    drivers.forEach(d => {
+        html += `
+            <div class="card driver-card" data-search="${d.driver_id} ${d.name?.toLowerCase()}">
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <div>
+                        <h3 style="margin:0;">[${d.driver_id}] ${d.name}</h3>
+                        <div style="color:var(--muted); font-size:13px; margin-top:4px;">
+                            Modal: <b>${d.vehicle}</b> | Tel: ${d.phone || 'N/A'} | Senha: ${d.password || 'N/A'}
+                        </div>
+                    </div>
+                    <div class="actions">
+                        <button class="btn-sm btn-edit" onclick="editarMotorista('${d.driver_id}')">Editar</button>
+                        <button class="btn-sm btn-del" onclick="deletarRegistro('drivers', '${d.driver_id}', true)">Apagar</button>
+                    </div>
+                </div>
+            </div>
+        `;
+    });
+    lista.innerHTML = html;
+}
+
+function filtrarMotoristas() {
+    const termo = document.getElementById('buscaMoto').value.toLowerCase();
+    document.querySelectorAll('.driver-card').forEach(card => {
+        if(card.dataset.search.includes(termo)) card.style.display = 'block';
+        else card.style.display = 'none';
+    });
+}
+
+// ==========================================
+// FUNÇÕES GLOBAIS (O PODER DO ADMIN)
+// ==========================================
+
+// EXCLUIR QUALQUER COISA
+async function deletarRegistro(tabela, id, isString = false) {
+    if(confirm("Tem certeza que deseja apagar isso permanentemente?")) {
+        const query = sb.from(tabela).delete();
+        if(isString) query.eq('driver_id', id);
+        else query.eq('id', id);
+
+        const { error } = await query;
+        if(error) alert("Erro ao deletar: " + error.message);
+        else {
+            alert("Apagado com sucesso!");
+            if(tabela === 'trade_offers' || tabela === 'trade_proposals') carregarMercado();
+            if(tabela === 'drivers') {
+                delete motoristasMap[id];
+                carregarMotoristas();
+            }
+        }
+    }
+}
+
+// FORÇAR ACEITE DE UMA TROCA
+async function forcarAceite(proposalId) {
+    if(confirm("Deseja APROVAR esta troca manualmente pelo painel? Os motoristas serão notificados.")) {
+        const { error } = await sb.rpc('accept_trade', { p_proposal_id: proposalId });
+        if(error) alert("Erro: " + error.message);
+        else {
+            alert("Troca Efetivada!");
+            carregarMercado();
+        }
+    }
+}
+
+// ==========================================
+// MODAIS E EDIÇÕES
+// ==========================================
+function abrirEdicao(tipo, id, valorAtual) {
+    editType = tipo; editId = id;
+    document.getElementById('editInput').value = valorAtual;
+    document.getElementById('modalEdit').style.display = 'flex';
+}
+
+async function salvarEdicao() {
+    const val = document.getElementById('editInput').value.trim();
+    // Transforma "A-1, B-2" em Array ['A-1', 'B-2']
+    const arrayFinal = val ? val.split(',').map(s => s.trim().toUpperCase()) : null;
+
+    let tabela = editType.startsWith('offer') ? 'trade_offers' : 'trade_proposals';
+    let coluna = '';
+    if(editType === 'offer_from') coluna = 'clusters_from';
+    if(editType === 'offer_desired') coluna = 'desired_clusters';
+    if(editType === 'proposal') coluna = 'proposed_clusters';
+
+    const { error } = await sb.from(tabela).update({ [coluna]: arrayFinal }).eq('id', editId);
+    
+    if(error) alert("Erro ao editar.");
+    else {
+        fecharModal();
+        carregarMercado(); // Recarrega a tela
+    }
+}
+
+function abrirModalMotorista() {
+    document.getElementById('d_id').value = '';
+    document.getElementById('d_name').value = '';
+    document.getElementById('d_phone').value = '';
+    document.getElementById('d_pass').value = '';
+    document.getElementById('d_id').disabled = false;
+    document.getElementById('modalDriver').style.display = 'flex';
+}
+
+function editarMotorista(id) {
+    const d = motoristasMap[id];
+    document.getElementById('d_id').value = d.driver_id;
+    document.getElementById('d_id').disabled = true; // Não deixa mudar o ID
+    document.getElementById('d_name').value = d.name;
+    document.getElementById('d_veh').value = d.vehicle;
+    document.getElementById('d_phone').value = d.phone || '';
+    document.getElementById('d_pass').value = d.password || '';
+    document.getElementById('modalDriver').style.display = 'flex';
+}
+
+async function salvarMotorista() {
+    const id = document.getElementById('d_id').value.trim();
+    const obj = {
+        driver_id: id,
+        name: document.getElementById('d_name').value.trim(),
+        vehicle: document.getElementById('d_veh').value,
+        phone: document.getElementById('d_phone').value.trim(),
+        password: document.getElementById('d_pass').value.trim()
+    };
+
+    if(!obj.driver_id || !obj.name) return alert("ID e Nome são obrigatórios.");
+
+    const { data, error } = await sb.from('drivers').upsert(obj).select();
+    if(error) alert("Erro ao salvar motorista.");
+    else {
+        motoristasMap[id] = obj; // Atualiza cache local
+        fecharModal();
+        carregarMotoristas();
+    }
+}
+
+function fecharModal() {
+    document.getElementById('modalEdit').style.display = 'none';
+    document.getElementById('modalDriver').style.display = 'none';
+}
+
+</script>
+</body>
+</html>

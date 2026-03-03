@@ -1,0 +1,467 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Mercado de Trocas</title>
+<script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+<style>
+  :root{ --bg:#020617; --card:#0b1220e6; --brand:#ff6a3c; --ink:#e5e7eb; --muted:#9ca3af; }
+  *{box-sizing:border-box; font-family: system-ui, sans-serif;}
+  body{ margin:0; background:var(--bg); color:var(--ink); padding-bottom: 40px;}
+  
+  .appbar{ background:#000; padding:15px; text-align:center; font-weight:bold; border-bottom:1px solid #333; position:sticky; top:0; z-index:10;}
+  .btn-sair{ position:absolute; right:15px; top:12px; background:transparent; border:1px solid #555; color:#fff; border-radius:6px; padding:4px 10px; cursor:pointer; font-size:12px; transition: 0.2s;}
+  .btn-sair:hover{ background:#333;}
+
+  .container{ max-width: 600px; margin: 20px auto; padding: 0 15px; }
+  .card{ background:var(--card); border:1px solid #1f2937; border-radius:16px; padding:20px; margin-bottom:20px; box-shadow:0 10px 30px rgba(0,0,0,0.5);}
+  h3{ margin:0 0 10px; font-size: 18px; color: #fff;}
+  h4{ margin: 15px 0 5px; font-size: 14px; color: var(--brand); text-transform: uppercase;}
+  
+  .cluster-group { margin-bottom: 12px; }
+  .cluster-grid{ display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip{ padding: 6px 10px; border-radius: 8px; background: #1f2937; border: 1px solid #374151; cursor: pointer; font-weight: bold; font-size:13px; transition: 0.2s; user-select: none;}
+  .chip.selected{ background: var(--brand); color: #fff; border-color: #f97316;}
+  .chip.selected-desired{ background: #3b82f6; color: #fff; border-color: #60a5fa;}
+  
+  .chip.win-AM.selected-window { background: #f59e0b; color: #fff; border-color: #fbbf24; }
+  .chip.win-PM1.selected-window { background: #3b82f6; color: #fff; border-color: #60a5fa; }
+  .chip.win-PM2.selected-window { background: #8b5cf6; color: #fff; border-color: #a78bfa; }
+  
+  .btn{ width:100%; padding:12px; border-radius:12px; background:var(--brand); color:#fff; font-weight:bold; border:none; cursor:pointer; font-size:16px;}
+  .btn:disabled{ background:#374151 !important; color:#9ca3af !important; cursor:not-allowed; border:none;}
+  .btn-sec{ background: transparent; border: 1px solid #374151; color: var(--ink); margin-top: 10px;}
+  .btn-blue{ background: #3b82f6; color: #fff; margin-top: 10px; border: none;}
+  input{ width:100%; padding:12px; background:#111827; border:1px solid #374151; color:#fff; border-radius:8px; margin-bottom:15px;}
+  
+  .badge{ background: #22c55e; color: #000; padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: bold;}
+  .badge-veh{ background: #10b981; color: #fff; padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: bold; margin-left: 6px;}
+  
+  .proposal-box{ background: #111827; padding: 12px; border-radius: 8px; margin-top: 10px; border: 1px dashed #374151;}
+  .selection-box { background: #111827; padding: 15px; border-radius: 12px; border: 1px solid #1f2937; margin-bottom: 20px;}
+  
+  .time-ribbon { display:flex; justify-content:space-between; align-items:center; margin-bottom:15px; background: #1f2937; padding: 12px 16px; border-radius: 10px; border: 1px solid #374151; }
+  .time-ribbon .date { font-size: 14px; color: #e5e7eb; display:flex; align-items:center; gap:6px; }
+  .time-ribbon .window { font-size: 18px; font-weight: 900; letter-spacing: 1px; }
+
+  .backdrop{ position:fixed; inset:0; display:none; align-items:center; justify-content:center; z-index:40; background:rgba(0,0,0,.8); backdrop-filter: blur(5px);}
+  .modal{ width:90%; max-width: 500px; background:var(--card); border:1px solid #374151; border-radius:22px; padding: 20px; max-height: 90vh; overflow-y: auto;}
+  
+  #driverInfo { display:none; text-align:center; padding: 10px; background: #111827; font-size: 12px; color: #9ca3af; border-bottom: 1px solid #1f2937; }
+</style>
+</head>
+<body>
+
+<div class="appbar">
+  Mercado de Trocas • Rotas
+  <button class="btn-sair" onclick="sair()" id="btnSair" style="display:none;">Sair</button>
+</div>
+
+<div id="driverInfo">
+    ID: <strong id="infoId" style="color:#fff;"></strong> | 
+    Veículo: <strong id="infoVeh" style="color:#10b981;"></strong>
+</div>
+
+<div class="container">
+  
+  <div class="card" id="loginCard">
+    <h3 style="border-bottom: 1px solid #333; padding-bottom: 10px; margin-bottom:15px;">Acesso Restrito</h3>
+    
+    <label style="font-size:13px; color:var(--muted); font-weight:bold;">Seu ID Shopee</label>
+    <input type="number" id="meuId" placeholder="Ex: 123456" style="margin-top:8px;">
+
+    <label style="font-size:13px; color:var(--muted); font-weight:bold;">Senha (4 últimos dígitos do telefone)</label>
+    <input type="password" id="minhaSenha" placeholder="Ex: 9999" style="margin-top:8px;" maxlength="4">
+    
+    <button class="btn" onclick="fazerLogin()" id="btnEntrar">Entrar no Mercado</button>
+  </div>
+
+  <div id="appContent" style="display:none;">
+    
+    <div class="card" style="border-top: 4px solid var(--brand);">
+      <h3 style="border-bottom: 1px solid #333; padding-bottom: 10px;">Anunciar minha Rota</h3>
+      
+      <div class="selection-box">
+        <h4 style="color:#a855f7; margin-top:0;">1. Qual o horário da rota?</h4>
+        <p style="font-size:13px; color:var(--muted); margin-top:0; margin-bottom:12px;">Data da Rota: <strong style="color:#fff;" id="dataAtualUi"></strong></p>
+        <div class="cluster-grid">
+            <div class="chip win-AM" id="chip-win-AM" onclick="selecionarJanela('AM')">AM (Manhã)</div>
+            <div class="chip win-PM1" id="chip-win-PM1" onclick="selecionarJanela('PM1')">PM1 (Tarde)</div>
+            <div class="chip win-PM2" id="chip-win-PM2" onclick="selecionarJanela('PM2')">PM2 (Noite)</div>
+        </div>
+      </div>
+
+      <div class="selection-box">
+        <h4 style="color:#f97316; margin-top:0;">2. Qual rota você pegou?</h4>
+        <div id="gridTenho"></div>
+      </div>
+
+      <div class="selection-box">
+        <h4 style="color:#60a5fa; margin-top:0;">3. Quais rotas aceita em troca?</h4>
+        <p style="font-size:12px; color:var(--muted); margin-top:0;">Deixe vazio se aceitar qualquer proposta.</p>
+        <div id="gridQuero"></div>
+      </div>
+
+      <button class="btn" onclick="criarAnuncio()">Publicar Rota no Mural</button>
+    </div>
+
+    <h3 style="margin-top: 40px; margin-bottom: 15px; border-bottom: 2px solid #333; padding-bottom: 8px;">Mural de Oportunidades</h3>
+    <div id="muralOfertas"></div>
+
+    <h3 style="margin-top: 40px; margin-bottom: 15px; border-bottom: 2px solid #333; padding-bottom: 8px;">Propostas Recebidas</h3>
+    <div id="minhasOfertas"></div>
+
+  </div>
+</div>
+
+<div class="backdrop" id="modalProposta">
+  <div class="modal">
+    <h3 style="color:#60a5fa;">Quais clusters você oferece?</h3>
+    <p style="font-size:12px; color:var(--muted);">Selecione a sua rota atual para oferecer na troca.</p>
+    <div id="gridOferecer"></div>
+    <div style="display:flex; gap:10px; margin-top:20px;">
+        <button class="btn btn-sec" style="margin-top:0;" onclick="fecharModal()">Cancelar</button>
+        <button class="btn btn-blue" style="margin-top:0;" onclick="confirmarProposta()">Enviar Proposta</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ==========================================
+// CHAVES DO SUPABASE
+// ==========================================
+const SUPABASE_URL = 'https://jplxmmpwajicjeoxfcpl.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_I7uKsNad5pHHes5bgAqhEA_ewMRRy_3';
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+const gerarSetor = (letra, max) => Array.from({length: max}, (_, i) => `${letra}-${i+1}`);
+const SETORES = [
+    { nome: 'Setor A', clusters: gerarSetor('A', 12) },
+    { nome: 'Setor B', clusters: gerarSetor('B', 13) },
+    { nome: 'Setor C', clusters: gerarSetor('C', 13) },
+    { nome: 'Setor D', clusters: gerarSetor('D', 13) }
+];
+
+let driverId = localStorage.getItem('trade_driver_id') || '';
+let myVehicle = localStorage.getItem('trade_vehicle') || '';
+let dataDeHoje = new Date().toLocaleDateString('pt-BR');
+let selectedWindow = '';  
+let selectedFrom = [];    
+let selectedDesired = []; 
+let selectedPropose = []; 
+let ofertaAlvoId = null;  
+
+document.getElementById('dataAtualUi').innerText = dataDeHoje;
+
+if(driverId && myVehicle){
+    mostrarApp();
+}
+
+async function fazerLogin() {
+    const id = document.getElementById('meuId').value.trim();
+    const senha = document.getElementById('minhaSenha').value.trim();
+    
+    if(!id || !senha) return alert("Preencha ID e Senha!");
+    
+    const btn = document.getElementById('btnEntrar');
+    btn.innerText = "Verificando...";
+    btn.disabled = true;
+
+    // Chama a função de login no banco
+    const { data, error } = await sb.rpc('login_driver', { p_id: id, p_pass: senha });
+
+    if(error) {
+        alert("Erro no servidor ao tentar logar.");
+        btn.innerText = "Entrar no Mercado";
+        btn.disabled = false;
+        return;
+    }
+
+    if(data.success) {
+        driverId = data.driver_id;
+        myVehicle = data.vehicle;
+        localStorage.setItem('trade_driver_id', driverId);
+        localStorage.setItem('trade_vehicle', myVehicle);
+        mostrarApp();
+    } else {
+        alert(data.message);
+        btn.innerText = "Entrar no Mercado";
+        btn.disabled = false;
+    }
+}
+
+function mostrarApp() {
+    document.getElementById('loginCard').style.display = 'none';
+    document.getElementById('appContent').style.display = 'block';
+    document.getElementById('btnSair').style.display = 'block';
+    
+    document.getElementById('driverInfo').style.display = 'block';
+    document.getElementById('infoId').innerText = driverId;
+    document.getElementById('infoVeh').innerText = myVehicle;
+
+    renderizarGrades();
+    carregarMural();
+    carregarMinhasOfertas();
+    
+    sb.channel('public:trade_offers').on('postgres_changes', { event: '*', schema: 'public', table: 'trade_offers' }, carregarMural).subscribe();
+    sb.channel('public:trade_proposals').on('postgres_changes', { event: '*', schema: 'public', table: 'trade_proposals' }, carregarMinhasOfertas).subscribe();
+}
+
+function sair() {
+    localStorage.removeItem('trade_driver_id');
+    localStorage.removeItem('trade_vehicle');
+    driverId = '';
+    myVehicle = '';
+    
+    document.getElementById('appContent').style.display = 'none';
+    document.getElementById('loginCard').style.display = 'block';
+    document.getElementById('btnSair').style.display = 'none';
+    document.getElementById('driverInfo').style.display = 'none';
+    
+    document.getElementById('meuId').value = '';
+    document.getElementById('minhaSenha').value = '';
+    
+    selectedFrom = []; selectedDesired = []; selectedWindow = '';
+    document.getElementById('muralOfertas').innerHTML = '';
+    document.getElementById('minhasOfertas').innerHTML = '';
+}
+
+function selecionarJanela(janela) {
+    selectedWindow = janela;
+    document.getElementById('chip-win-AM').classList.remove('selected-window');
+    document.getElementById('chip-win-PM1').classList.remove('selected-window');
+    document.getElementById('chip-win-PM2').classList.remove('selected-window');
+    document.getElementById(`chip-win-${janela}`).classList.add('selected-window');
+}
+
+function renderizarGrades() {
+    document.getElementById('gridTenho').innerHTML = gerarHtmlGrade('from');
+    document.getElementById('gridQuero').innerHTML = gerarHtmlGrade('desired');
+    document.getElementById('gridOferecer').innerHTML = gerarHtmlGrade('propose');
+}
+
+function gerarHtmlGrade(tipo) {
+    let html = '';
+    SETORES.forEach(setor => {
+        html += `<div class="cluster-group">
+                    <div style="font-size:12px; font-weight:bold; color:#6b7280; margin-bottom:4px;">${setor.nome}</div>
+                    <div class="cluster-grid">`;
+        setor.clusters.forEach(c => {
+            html += `<div class="chip" id="chip-${tipo}-${c}" onclick="toggleCluster('${tipo}', '${c}')">${c}</div>`;
+        });
+        html += `   </div>
+                 </div>`;
+    });
+    return html;
+}
+
+function toggleCluster(tipo, c) {
+    const el = document.getElementById(`chip-${tipo}-${c}`);
+    let lista;
+    let classeCor = 'selected';
+
+    if (tipo === 'from') lista = selectedFrom;
+    if (tipo === 'desired') { lista = selectedDesired; classeCor = 'selected-desired'; }
+    if (tipo === 'propose') { lista = selectedPropose; classeCor = 'selected-desired'; }
+
+    if (lista.includes(c)) {
+        lista.splice(lista.indexOf(c), 1);
+        el.classList.remove(classeCor);
+    } else {
+        lista.push(c);
+        el.classList.add(classeCor);
+    }
+}
+
+function obterCorDaJanela(janela) {
+    if (janela === 'AM') return '#f59e0b'; 
+    if (janela === 'PM1') return '#3b82f6'; 
+    if (janela === 'PM2') return '#8b5cf6'; 
+    return '#9ca3af'; 
+}
+
+async function criarAnuncio() {
+    if(!selectedWindow) return alert("Selecione o Horário (AM, PM1 ou PM2).");
+    if(selectedFrom.length === 0) return alert("Selecione qual é a sua rota atual.");
+    
+    const btn = event.target;
+    btn.innerText = "Publicando...";
+    btn.disabled = true;
+
+    const { error } = await sb.from('trade_offers').insert({
+        driver_id: driverId,
+        vehicle: myVehicle,
+        clusters_from: selectedFrom,
+        desired_clusters: selectedDesired.length > 0 ? selectedDesired : null,
+        route_date: dataDeHoje,
+        time_window: selectedWindow
+    });
+
+    btn.innerText = "Publicar Rota no Mural";
+    btn.disabled = false;
+
+    if(error) alert("Erro ao anunciar: " + error.message);
+    else {
+        alert("Anúncio publicado com sucesso!");
+        selectedFrom = []; selectedDesired = []; selectedWindow = '';
+        renderizarGrades(); 
+        document.getElementById('chip-win-AM').classList.remove('selected-window');
+        document.getElementById('chip-win-PM1').classList.remove('selected-window');
+        document.getElementById('chip-win-PM2').classList.remove('selected-window');
+        carregarMinhasOfertas();
+    }
+}
+
+async function carregarMural() {
+    const { data, error } = await sb.from('trade_offers').select('*').eq('status', 'OPEN').order('created_at', {ascending: false});
+    const mural = document.getElementById('muralOfertas');
+    mural.innerHTML = '';
+    
+    if(!data || data.length === 0) return mural.innerHTML = '<p style="color:var(--muted); text-align:center; padding:20px; border:1px dashed #374151; border-radius:12px;">Nenhuma rota disponível no momento.</p>';
+
+    data.forEach(oferta => {
+        if(oferta.driver_id === driverId) return; 
+        
+        let textoDesejo = '<span style="color:#22c55e">✓ Aceita qualquer proposta livre</span>';
+        if(oferta.desired_clusters && oferta.desired_clusters.length > 0) {
+            textoDesejo = `<span style="color:#60a5fa">🔍 Procura especificamente: ${oferta.desired_clusters.join(', ')}</span>`;
+        }
+
+        const corJanela = obterCorDaJanela(oferta.time_window);
+        const modalOfertado = oferta.vehicle || 'INDEFINIDO';
+
+        // ==========================================
+        // LÓGICA DE TRAVA DE VEÍCULO
+        // Moto só troca com Moto. Carro/Van trocam entre si.
+        // ==========================================
+        let isMotoOfertada = (modalOfertado === 'MOTO');
+        let isMinhaMoto = (myVehicle === 'MOTO');
+        
+        let podeTrocar = false;
+        if (isMinhaMoto && isMotoOfertada) {
+            podeTrocar = true; // Moto com Moto = OK
+        } else if (!isMinhaMoto && !isMotoOfertada) {
+            podeTrocar = true; // Passeio/Fiorino com Passeio/Fiorino = OK
+        }
+        
+        let htmlBotao = '';
+        if (!podeTrocar) {
+            let msgErro = isMinhaMoto ? "Apenas para Carro/Van" : "Apenas para Moto";
+            htmlBotao = `<button class="btn" disabled>Bloqueado: ${msgErro}</button>`;
+        } else {
+            htmlBotao = `<button class="btn btn-blue" style="margin-top:0;" onclick="abrirModalProposta(${oferta.id})">Fazer Proposta de Troca</button>`;
+        }
+
+        mural.innerHTML += `
+            <div class="card" style="border-top: 4px solid ${corJanela}; padding-top: 0;">
+                <div class="time-ribbon" style="margin: 0 -20px 15px -20px; border-radius: 16px 16px 0 0; border-top: none; border-left: none; border-right: none;">
+                    <div class="date">📅 <b>${oferta.route_date || ''}</b></div>
+                    <div class="window" style="color: ${corJanela};">⏰ ${oferta.time_window || ''}</div>
+                </div>
+
+                <div style="margin-bottom:15px;">
+                    <span class="badge" style="margin-bottom:10px; display:inline-block;">Disponível</span>
+                    <span class="badge-veh" style="margin-bottom:10px; display:inline-block;">🚐 ${modalOfertado}</span>
+                    <h3 style="margin:0; font-size:22px;">Oferta: ${oferta.clusters_from.join(', ')}</h3>
+                </div>
+                
+                <div style="background: #111827; padding:10px; border-radius:8px; margin-bottom:15px; font-size:13px; font-weight:bold;">
+                    ${textoDesejo}
+                </div>
+
+                ${htmlBotao}
+            </div>
+        `;
+    });
+}
+
+function abrirModalProposta(ofertaId) {
+    ofertaAlvoId = ofertaId;
+    selectedPropose = [];
+    document.getElementById('gridOferecer').innerHTML = gerarHtmlGrade('propose'); 
+    document.getElementById('modalProposta').style.display = 'flex';
+}
+
+function fecharModal() {
+    document.getElementById('modalProposta').style.display = 'none';
+    ofertaAlvoId = null;
+}
+
+async function confirmarProposta() {
+    if(selectedPropose.length === 0) return alert("Selecione pelo menos um cluster da sua rota para oferecer.");
+    
+    const { error } = await sb.from('trade_proposals').insert({
+        offer_id: ofertaAlvoId,
+        proposing_driver_id: driverId,
+        proposed_clusters: selectedPropose
+    });
+    
+    if(error) alert("Erro ao enviar proposta.");
+    else {
+        alert("Proposta enviada! Aguarde o motorista aceitar.");
+        fecharModal();
+    }
+}
+
+async function carregarMinhasOfertas() {
+    const { data: ofertas } = await sb.from('trade_offers').select('*').eq('driver_id', driverId).eq('status', 'OPEN');
+    const container = document.getElementById('minhasOfertas');
+    container.innerHTML = '';
+
+    if(!ofertas || ofertas.length === 0) return container.innerHTML = '<p style="color:var(--muted); text-align:center; padding:20px; border:1px dashed #374151; border-radius:12px;">Você não tem anúncios ativos.</p>';
+
+    for(const oferta of ofertas) {
+        const { data: propostas } = await sb.from('trade_proposals').select('*').eq('offer_id', oferta.id).eq('status', 'PENDING');
+        
+        let propostasHTML = '';
+        if(propostas && propostas.length > 0) {
+            propostasHTML = propostas.map(p => `
+                <div class="proposal-box" style="border-color:#60a5fa;">
+                    <div style="color:#e5e7eb; font-size:13px; margin-bottom:5px;">Colega ofereceu:</div>
+                    <b style="color:#60a5fa; font-size:18px;">${p.proposed_clusters.join(', ')}</b><br>
+                    <button class="btn" style="margin-top:12px; padding:12px; font-size:14px; background:#22c55e;" onclick="aceitarTroca(${p.id})">✅ ACEITAR ESTA ROTA</button>
+                </div>
+            `).join('');
+        } else {
+            propostasHTML = '<p style="font-size:13px; color:var(--muted); text-align:center; margin-top:15px;">Aguardando colegas enviarem propostas...</p>';
+        }
+
+        const corJanela = obterCorDaJanela(oferta.time_window);
+
+        container.innerHTML += `
+            <div class="card" style="border: 2px solid #f97316; padding-top:0;">
+                <div class="time-ribbon" style="margin: 0 -20px 15px -20px; border-radius: 14px 14px 0 0; border-top: none; border-left: none; border-right: none; background: #2a1a14;">
+                    <div class="date">📅 <b>${oferta.route_date || ''}</b></div>
+                    <div class="window" style="color: ${corJanela};">⏰ ${oferta.time_window || ''}</div>
+                </div>
+
+                <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+                    <div>
+                        <span class="badge" style="background:#f97316; color:#fff; margin-bottom:8px; display:inline-block;">Meu Anúncio</span>
+                        <h3 style="margin:0; font-size:20px;">Sua Rota: ${oferta.clusters_from.join(', ')}</h3>
+                    </div>
+                </div>
+                
+                <div style="margin-top: 15px; border-top: 1px solid #374151; padding-top: 15px;">
+                    ${propostasHTML}
+                </div>
+            </div>
+        `;
+    }
+}
+
+async function aceitarTroca(proposalId) {
+    if(confirm("ATENÇÃO: Tem certeza que deseja fechar negócio com esta rota? A troca será registrada.")) {
+        const { error } = await sb.rpc('accept_trade', { p_proposal_id: proposalId });
+        if(error) alert("Erro ao confirmar troca: " + error.message);
+        else {
+            alert("✅ Troca Realizada com Sucesso! Vá até a nova gaiola e bipe os pacotes.");
+            carregarMinhasOfertas();
+            carregarMural();
+        }
+    }
+}
+</script>
+</body>
+</html>
